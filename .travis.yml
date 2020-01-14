@@ -1,0 +1,65 @@
+# Inspired from the .travis.yml in
+# https://github.com/davidchall/homebrew-hep/
+
+language: ruby
+env:
+  global:
+    - HOMEBREW_LOGS=/tmp # Prevent ~/.cache/Homebrew/Logs from being rebuilt
+    - HOMEBREW_NO_AUTO_UPDATE=yes # Prevents redundant auto-updates from brew
+
+cache:
+  directories:
+    - "$HOME/.cache/pip"
+    - "$HOME/.gem/ruby"
+    - "$HOME/Library/Caches/Homebrew" # (1)
+    - "$HOME/.cache/Homebrew"         # (2)
+
+install:
+  - brew tap maelvalais/test-bot
+  - brew install git
+  - mkdir -p $(brew --repo $TRAVIS_REPO_SLUG)   # 1)
+  - rm -rf $(brew --repo $TRAVIS_REPO_SLUG)     # 2)
+  - ln -s $PWD $(brew --repo $TRAVIS_REPO_SLUG) # 3)
+  - git fetch --unshallow || true               # 4)
+  - perl -pi -e 's/(.*)problem(.*version.*should not contain.*)$/$1opoo$2/' $(brew --repo)/Library/Homebrew/dev-cmd/audit.rb
+  - git -C $(brew --repo) commit -a -m "disable error on beta or alpha version"
+
+script:
+  - |
+    brew install ./Formula/sentinel-simulator.rb && brew test ./Formula/sentinel-simulator.rb && brew linkage --test ./Formula/sentinel-simulator.rb
+  - echo $TRAVIS_EVENT_TYPE
+jobs:
+  include:
+    - &run-osx
+      os: osx
+      osx_image: xcode10.1
+      env: OS=high_sierra-10.13
+      before_install: # IMPORTANT: HOMEBREW_DEVELOPER must not be set here.
+        # First we uninstall any outdated versions of xquartz; otherwise,
+        # Homebrew will complain of of older version (2.9.7) being outdated
+        # even though we install a new version. Remember that
+        # /usr/local/Caskroom will also be deleted below.
+        - brew cask outdated xquartz || brew cask uninstall xquartz
+        # Three reasons not to use the /usr/local and Homebrew installations
+        # that come in the Travis CI images:
+        # 1) because Travis CI has installed many non-homebrew things into
+        #    /usr/local that randomly cause 'brew doctor' to fail;
+        # 2) after time, the osx image contains an outdated Homebrew that
+        #    has weird 'unlinked kegs' and such;
+        # 3) also because it takes a long time to 'brew update' from an old
+        #    Homebrew anyway, so why not start fresh.
+        - mkdir ~/usr_local && sudo mv /usr/local/* ~/usr_local
+        - git config --global --unset protocol.version # System git is too old
+        - /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+
+        # Either xquartz was already installed at its latest version or it has
+        # been uninstalled. First, we put the cask back in place if it has not
+        # been uninstalled.
+        - |
+          if [ -d ~/usr_local/Caskroom/xquartz ];
+          then sudo mv ~/usr_local/Caskroom /usr/local/Caskroom;
+          else travis_retry brew cask install xquartz --no-quarantine; fi
+        # We still need the 'rvm default' ruby (which links to Homebrew stuff) on
+        # macOS 10.12 and 10.11 because the system ruby has an old openssl
+        # ("tlsv1 alert protocol"). Reinstall needed stuff removed by test-bot.
+        - travis_retry brew install libyaml gmp openssl@1.1
