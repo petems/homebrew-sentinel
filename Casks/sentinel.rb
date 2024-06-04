@@ -15,6 +15,8 @@ cask "sentinel" do
     regex(%r{href=.*?/sentinel[._-]?v?(\d+(?:\.\d+)+)[._-]darwin[._-]#{arch}\.zip}i)
   end
 
+  Dir.mkdir(Dir.home() + "/Library/Application\ Support/sentinel") unless File.exists?(Dir.home() + "/Library/Application\ Support/sentinel")
+
   binary "sentinel"
   # No zap stanza required
 end
